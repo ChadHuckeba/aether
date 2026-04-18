@@ -98,8 +98,8 @@ def sync_github_repo(owner: str, repo: str, branch: str = "main"):
     print(f"Sync complete. Aether is ready on the Stable Tier.")
 
 if __name__ == "__main__":
-    vanguard_path = os.getenv("VANGUARD_PATH")
-    if not vanguard_path:
-        print("Error: VANGUARD_PATH not found in .env")
+    project_path = os.getenv("PROJECT_PATH")
+    if not project_path:
+        print("Error: PROJECT_PATH not found in .env")
     else:
-        sync_local_dir(vanguard_path)
+        sync_local_dir(project_path)
