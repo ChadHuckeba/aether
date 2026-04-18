@@ -1,0 +1,15 @@
+[project]
+name = "svc-context-provider"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "llama-index>=0.14.20",
+    "llama-index-embeddings-google-genai>=0.5.0",
+    "llama-index-llms-google-genai>=0.9.1",
+    "llama-index-readers-github>=0.11.2",
+    "python-dotenv>=1.2.2",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+]
