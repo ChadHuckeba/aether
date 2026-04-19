@@ -69,9 +69,16 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str):
     
     print("Sync complete.")
 
-def sync_local_dir(dir_path: str):
-    """Legacy wrapper for default storage."""
-    sync_local_dir_custom(dir_path, "./storage")
+def sync_local_dir(dir_path: str, project_name: str = None):
+    """Orchestrates retrieval and indexing with project-specific storage."""
+    if not project_name:
+        project_name = os.getenv("PROJECT_NAME", "default")
+    
+    folder = project_name.lower().replace(" ", "_")
+    storage_dir = Path("./storage") / folder
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    
+    sync_local_dir_custom(dir_path, str(storage_dir))
 
 def sync_github_repo(owner: str, repo: str, branch: str = "main"):
     """
@@ -111,13 +118,20 @@ def sync_github_repo(owner: str, repo: str, branch: str = "main"):
 
     # Build and Persist Index
     index = VectorStoreIndex(clean_nodes)
-    index.storage_context.persist(persist_dir="./storage")
     
-    print(f"Sync complete. Aether is ready on the Stable Tier.")
+    project_name = f"{owner}_{repo}"
+    folder = project_name.lower().replace(" ", "_")
+    storage_dir = Path("./storage") / folder
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    
+    index.storage_context.persist(persist_dir=str(storage_dir))
+    
+    print(f"Sync complete. Aether is ready on the Stable Tier. Storage: {storage_dir}")
 
 if __name__ == "__main__":
     project_path = os.getenv("PROJECT_PATH")
+    project_name = os.getenv("PROJECT_NAME")
     if not project_path:
         print("Error: PROJECT_PATH not found in .env")
     else:
-        sync_local_dir(project_path)
+        sync_local_dir(project_path, project_name)

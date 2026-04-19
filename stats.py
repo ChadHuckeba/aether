@@ -2,7 +2,17 @@ import os
 import json
 from pathlib import Path
 
-def get_index_stats(storage_dir="./storage"):
+from dotenv import load_dotenv
+
+# Load environment to get PROJECT_NAME
+load_dotenv()
+
+def get_index_stats(storage_dir=None):
+    if not storage_dir:
+        project_name = os.getenv("PROJECT_NAME", "default")
+        folder = project_name.lower().replace(" ", "_")
+        storage_dir = Path("./storage") / folder
+    
     storage_path = Path(storage_dir)
     if not storage_path.exists():
         print(f"Error: {storage_dir} not found.")

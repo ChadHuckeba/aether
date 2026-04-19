@@ -20,13 +20,15 @@ Settings.embed_model = GoogleGenAIEmbedding(
 )
 
 def query_aether(prompt: str):
-    storage_dir = "./storage"
+    project_name = os.getenv("PROJECT_NAME", "default")
+    folder = project_name.lower().replace(" ", "_")
+    storage_dir = Path("./storage") / folder
     
-    if not os.path.exists(storage_dir):
-        raise FileNotFoundError("Storage directory not found. Run ingestion.py first.")
+    if not storage_dir.exists():
+        raise FileNotFoundError(f"Storage directory {storage_dir} not found. Run ingestion.py first.")
 
     # 3. Load the index from the local JSON files
-    storage_context = StorageContext.from_defaults(persist_dir=storage_dir)
+    storage_context = StorageContext.from_defaults(persist_dir=str(storage_dir))
     index = load_index_from_storage(storage_context)
 
     # 4. Create the Query Engine

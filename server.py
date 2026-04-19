@@ -56,6 +56,7 @@ PROJECTS = load_projects()
 active_project = "Vanguard"
 sync_status = {"status": "idle", "last_sync": "Never", "auto_sync": True}
 _cached_index = None
+_stats_cache = {} # { project_name: { "mtime": 0, "data": { ... } } }
 REQUIRED_EXTS = [".py", ".md", ".ps1", ".txt", ".json", ".toml", ".yaml", ".yml"]
 
 # --- Helpers ---
@@ -255,6 +256,7 @@ async def release_memory():
 
 @app.get("/stats")
 async def get_stats():
+    global _stats_cache
     try:
         if active_project not in PROJECTS:
             return {
@@ -264,19 +266,32 @@ async def get_stats():
 
         project_path = PROJECTS.get(active_project)
         storage_dir = Path(get_storage_dir(active_project))
+        docstore_path = storage_dir / "docstore.json"
         ram_mb = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
         
+        # --- Optimized Cache Check ---
+        current_mtime = docstore_path.stat().st_mtime if docstore_path.exists() else 0
+        cache = _stats_cache.get(active_project, {"mtime": -1, "data": None})
+        
+        if cache["mtime"] == current_mtime and cache["data"] is not None:
+            # Add dynamic RAM info to cached data
+            final_data = cache["data"].copy()
+            final_data["ram_usage_mb"] = round(ram_mb, 2)
+            final_data["is_loaded"] = _cached_index is not None
+            final_data["sync_status"] = sync_status
+            return final_data
+
+        # --- Rebuild Cache ---
         file_list = []
         node_count = 0
         total_size_kb = 0
         file_count = 0
         
-        if storage_dir.exists() and (storage_dir / "docstore.json").exists():
+        if docstore_path.exists():
             try:
-                with open(storage_dir / "docstore.json", "r") as f:
+                with open(docstore_path, "r") as f:
                     data = json.load(f)
                 
-                # Handling both nested and flat docstore structures
                 doc_data = data.get("docstore/data", data.get("docstore", {}).get("data", {}))
                 ref_info = data.get("docstore/ref_doc_info", data.get("docstore", {}).get("ref_doc_info", {}))
                 
@@ -288,27 +303,41 @@ async def get_stats():
                     full_path = info.get("metadata", {}).get("file_path")
                     if full_path:
                         try:
-                            # Sanitize paths for relpath
+                            # Robust Path Resolution
                             clean_full = Path(full_path).resolve()
                             clean_proj = Path(project_path).resolve()
-                            file_list.append(os.path.relpath(str(clean_full), str(clean_proj)))
-                        except:
-                            file_list.append(full_path)
+                            # Use relpath but catch ValueError (e.g. cross-drive or disjoint paths)
+                            rel = os.path.relpath(str(clean_full), str(clean_proj))
+                            if rel.startswith(".."): # Too far up, just use name
+                                file_list.append(clean_full.name)
+                            else:
+                                file_list.append(rel)
+                        except (ValueError, Exception):
+                            # Fallback to just the filename if relpath fails
+                            file_list.append(Path(full_path).name)
             except Exception as e:
                 print(f"Error reading docstore: {e}")
 
-        return {
+        stats_data = {
             "node_count": node_count,
             "file_count": file_count,
             "total_size_kb": total_size_kb,
             "files": sorted(list(set(file_list))),
-            "sync_status": sync_status,
             "project_name": active_project,
             "project_path": Path(project_path).name if project_path else "None",
-            "is_loaded": _cached_index is not None,
-            "ram_usage_mb": round(ram_mb, 2),
             "available_projects": list(PROJECTS.keys())
         }
+        
+        # Update Cache
+        _stats_cache[active_project] = {"mtime": current_mtime, "data": stats_data}
+        
+        # Prepare Response
+        final_data = stats_data.copy()
+        final_data["ram_usage_mb"] = round(ram_mb, 2)
+        final_data["is_loaded"] = _cached_index is not None
+        final_data["sync_status"] = sync_status
+        return final_data
+
     except Exception as e:
         import traceback
         print(f"CRITICAL ERROR in get_stats: {e}")
