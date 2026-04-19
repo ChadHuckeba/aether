@@ -17,9 +17,9 @@ function Get-AetherPID {
 
 switch ($Action) {
     "start" {
-        $pid = Get-AetherPID
-        if ($pid) {
-            Write-Host "Aether is already running (PID: $pid)" -ForegroundColor Cyan
+        $APID = Get-AetherPID
+        if ($APID) {
+            Write-Host "Aether is already running (PID: $APID)" -ForegroundColor Cyan
         } else {
             Write-Host "Starting Aether Context Engine..." -ForegroundColor Yellow
             Start-Process uv -ArgumentList "run python server.py" -WindowStyle Hidden
@@ -31,10 +31,10 @@ switch ($Action) {
     }
 
     "stop" {
-        $pid = Get-AetherPID
-        if ($pid) {
-            Write-Host "Stopping Aether (PID: $pid)..." -ForegroundColor Yellow
-            Stop-Process -Id $pid -Force
+        $APID = Get-AetherPID
+        if ($APID) {
+            Write-Host "Stopping Aether (PID: $APID)..." -ForegroundColor Yellow
+            Stop-Process -Id $APID -Force
             Write-Host "Aether session ended. Workstation clean." -ForegroundColor Green
         } else {
             Write-Host "Aether is not running." -ForegroundColor Gray
@@ -42,11 +42,11 @@ switch ($Action) {
     }
 
     "status" {
-        $pid = Get-AetherPID
-        if ($pid) {
-            $mem = (Get-Process -Id $pid).WorkingSet / 1MB
+        $APID = Get-AetherPID
+        if ($APID) {
+            $mem = (Get-Process -Id $APID).WorkingSet / 1MB
             Write-Host "Aether Status: ACTIVE" -ForegroundColor Green
-            Write-Host "PID: $pid"
+            Write-Host "PID: $APID"
             Write-Host "RAM: $([Math]::Round($mem, 2)) MB"
         } else {
             Write-Host "Aether Status: INACTIVE" -ForegroundColor Red
