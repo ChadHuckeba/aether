@@ -1,0 +1,55 @@
+# SurvivalStack | Aether Session Manager
+# Usage: ./session.ps1 [start|stop|status]
+
+param (
+    [Parameter(Mandatory=$false)]
+    [ValidateSet("start", "stop", "status")]
+    $Action = "start"
+)
+
+$Port = 8000
+$ProcessName = "python" # We filter by command line to be precise
+
+function Get-AetherPID {
+    $proc = Get-CimInstance Win32_Process -Filter "Name = 'python.exe' AND CommandLine LIKE '%server.py%'"
+    return $proc.ProcessId
+}
+
+switch ($Action) {
+    "start" {
+        $pid = Get-AetherPID
+        if ($pid) {
+            Write-Host "Aether is already running (PID: $pid)" -ForegroundColor Cyan
+        } else {
+            Write-Host "Starting Aether Context Engine..." -ForegroundColor Yellow
+            Start-Process uv -ArgumentList "run python server.py" -WindowStyle Hidden
+            Start-Sleep -Seconds 2
+            Write-Host "Aether is live at http://localhost:$Port" -ForegroundColor Green
+        }
+        # Optional: Open the dashboard automatically
+        # Start-Process "http://localhost:$Port"
+    }
+
+    "stop" {
+        $pid = Get-AetherPID
+        if ($pid) {
+            Write-Host "Stopping Aether (PID: $pid)..." -ForegroundColor Yellow
+            Stop-Process -Id $pid -Force
+            Write-Host "Aether session ended. Workstation clean." -ForegroundColor Green
+        } else {
+            Write-Host "Aether is not running." -ForegroundColor Gray
+        }
+    }
+
+    "status" {
+        $pid = Get-AetherPID
+        if ($pid) {
+            $mem = (Get-Process -Id $pid).WorkingSet / 1MB
+            Write-Host "Aether Status: ACTIVE" -ForegroundColor Green
+            Write-Host "PID: $pid"
+            Write-Host "RAM: $([Math]::Round($mem, 2)) MB"
+        } else {
+            Write-Host "Aether Status: INACTIVE" -ForegroundColor Red
+        }
+    }
+}

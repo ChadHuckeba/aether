@@ -1,6 +1,8 @@
 import os
 import json
 import asyncio
+import gc
+import psutil
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -33,20 +35,28 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     response: str
 
-# Track sync status
+# Session State
 sync_status = {"status": "idle", "last_sync": "Never"}
 PROJECT_NAME = os.getenv("PROJECT_NAME", "Project")
 PROJECT_PATH = os.getenv("PROJECT_PATH", "Unknown")
-# Short display path (just the folder name)
 DISPLAY_PATH = Path(PROJECT_PATH).name if PROJECT_PATH != "Unknown" else "Unknown"
 
+# Lazy Index Cache
+_cached_index = None
+
 def get_index():
+    global _cached_index
+    if _cached_index is not None:
+        return _cached_index
+
     storage_dir = "./storage"
     if not os.path.exists(storage_dir):
         raise HTTPException(status_code=500, detail="Storage directory not found. Run ingestion.py first.")
     
+    print(f"Lazy Loading index for {PROJECT_NAME} into RAM...")
     storage_context = StorageContext.from_defaults(persist_dir=storage_dir)
-    return load_index_from_storage(storage_context)
+    _cached_index = load_index_from_storage(storage_context)
+    return _cached_index
 
 @app.post("/query", response_model=QueryResponse)
 async def query_endpoint(request: QueryRequest):
@@ -59,6 +69,18 @@ async def query_endpoint(request: QueryRequest):
         import traceback
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/release")
+async def release_memory():
+    """Purges the index from RAM without stopping the server."""
+    global _cached_index
+    if _cached_index is None:
+        return {"message": "Memory already clean"}
+    
+    _cached_index = None
+    gc.collect() # Force garbage collection
+    print("Memory released: Index purged from RAM.")
+    return {"message": "RAM cleared successfully"}
 
 @app.get("/stats")
 async def get_stats():
@@ -73,21 +95,18 @@ async def get_stats():
     doc_dict = data.get("docstore/data", {})
     ref_doc_info = data.get("docstore/ref_doc_info", {})
     
-    # Calculate sizes
-    total_size_kb = sum(f.stat().st_size for f in storage_path.glob("*.json")) / 1024
+    # Calculate actual Process RAM
+    process = psutil.Process(os.getpid())
+    ram_mb = process.memory_info().rss / (1024 * 1024)
     
     files = []
     project_path = os.getenv("PROJECT_PATH", "")
-    
     for doc_id, info in ref_doc_info.items():
         metadata = info.get("metadata", {})
         full_path = metadata.get("file_path") or metadata.get("file_name") or doc_id
-        
-        # Convert to relative path if possible
         try:
             if project_path and os.path.isabs(full_path):
-                rel_path = os.path.relpath(full_path, project_path)
-                files.append(rel_path)
+                files.append(os.path.relpath(full_path, project_path))
             else:
                 files.append(full_path)
         except ValueError:
@@ -96,22 +115,24 @@ async def get_stats():
     return {
         "node_count": len(doc_dict),
         "file_count": len(ref_doc_info),
-        "total_size_kb": round(total_size_kb, 2),
+        "total_size_kb": round(sum(f.stat().st_size for f in storage_path.glob("*.json")) / 1024, 2),
         "files": sorted(list(set(files))),
         "sync_status": sync_status,
         "project_name": PROJECT_NAME,
-        "project_path": DISPLAY_PATH
+        "project_path": DISPLAY_PATH,
+        "is_loaded": _cached_index is not None,
+        "ram_usage_mb": round(ram_mb, 2)
     }
 
 async def run_ingestion():
-    global sync_status
+    global sync_status, _cached_index
     sync_status["status"] = "syncing"
     try:
         project_path = os.getenv("PROJECT_PATH")
         if not project_path:
             raise ValueError("PROJECT_PATH not set in .env")
-        # Run in a thread to not block the event loop if it's heavy
         await asyncio.to_thread(sync_local_dir, project_path)
+        _cached_index = None 
         from datetime import datetime
         sync_status["last_sync"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         sync_status["status"] = "idle"
@@ -144,12 +165,12 @@ async def dashboard():
             .mono {{ font-family: 'JetBrains Mono', monospace; }}
         </style>
     </head>
-    <body class="p-8 min-h-screen relative">
+    <body class="p-8 min-h-screen relative text-slate-300">
         <div class="max-w-6xl mx-auto">
             <header class="flex justify-between items-end mb-12">
                 <div>
                     <h1 class="text-6xl font-bold tracking-tighter bg-clip-text text-transparent bg-gradient-to-br from-white to-slate-500">Aether</h1>
-                    <p class="text-slate-500 text-sm mt-2 ml-1">Universal Context Engine</p>
+                    <p class="text-slate-500 text-sm mt-2 ml-1 italic tracking-widest">Universal Context Engine</p>
                 </div>
                 
                 <div class="flex flex-col items-end gap-3">
@@ -157,10 +178,9 @@ async def dashboard():
                     <div class="group relative">
                         <button class="glass pl-4 pr-10 py-2 rounded-full text-sm font-semibold flex items-center gap-2 hover:border-blue-500/50 transition-all">
                             <span class="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>
-                            <span id="project-label" class="text-blue-100">{PROJECT_NAME}</span>
+                            <span id="project-label" class="text-blue-100 font-bold">{PROJECT_NAME}</span>
                             <svg class="w-4 h-4 absolute right-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                         </button>
-                        <!-- Dropdown Placeholder -->
                         <div class="absolute right-0 mt-2 w-48 glass rounded-2xl p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto z-50">
                             <div class="px-3 py-2 text-[10px] text-slate-500 font-bold uppercase">Switch Project</div>
                             <div class="px-3 py-2 text-sm text-blue-400 font-medium bg-blue-500/10 rounded-xl mb-1">{PROJECT_NAME}</div>
@@ -172,23 +192,27 @@ async def dashboard():
 
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                 <div class="glass p-6 rounded-3xl">
-                    <h3 class="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-2">Status</h3>
+                    <h3 class="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-2">System</h3>
                     <div id="status-badge" class="flex items-center gap-2">
                         <span id="status-dot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        <span id="status-text" class="text-sm font-medium">Ready</span>
+                        <span id="status-text" class="text-sm font-medium text-emerald-400 uppercase tracking-tighter">Ready</span>
                     </div>
                 </div>
-                <div class="glass p-6 rounded-3xl">
-                    <h3 class="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-2">Vector Nodes</h3>
-                    <p id="stat-nodes" class="text-3xl font-bold italic mono">--</p>
+                <div class="glass p-6 rounded-3xl relative overflow-hidden">
+                    <h3 class="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-2">Memory Use</h3>
+                    <div class="flex items-center justify-between">
+                        <p id="ram-status" class="text-2xl font-bold italic mono">--</p>
+                        <button onclick="releaseRAM()" class="text-[10px] text-slate-500 hover:text-white underline decoration-blue-500/50">Purge</button>
+                    </div>
+                    <div id="ram-pulse" class="absolute bottom-0 left-0 h-1 bg-blue-500 transition-all duration-1000" style="width: 0%"></div>
                 </div>
                 <div class="glass p-6 rounded-3xl">
                     <h3 class="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-2">Source Files</h3>
                     <p id="stat-files" class="text-3xl font-bold italic mono">--</p>
                 </div>
                 <div class="glass p-6 rounded-3xl">
-                    <h3 class="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-2">Index Size</h3>
-                    <p id="stat-size" class="text-3xl font-bold italic mono text-blue-400">--</p>
+                    <h3 class="text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-2">Nodes</h3>
+                    <p id="stat-nodes" class="text-3xl font-bold italic mono text-blue-400">--</p>
                 </div>
             </div>
 
@@ -196,7 +220,7 @@ async def dashboard():
                 <div class="lg:col-span-2 glass rounded-[2rem] overflow-hidden">
                     <div class="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
                         <div>
-                            <h2 class="text-xl font-bold">Knowledge Base</h2>
+                            <h2 class="text-xl font-bold text-white">Knowledge Base</h2>
                             <p class="text-xs text-slate-500 mt-1 mono truncate max-w-xs" id="project-path-display">./{DISPLAY_PATH}</p>
                         </div>
                         <button id="sync-btn" onclick="triggerSync()" class="bg-white text-slate-900 hover:bg-blue-400 hover:text-white transition-all px-8 py-3 rounded-2xl font-bold text-sm shadow-xl">
@@ -204,35 +228,33 @@ async def dashboard():
                         </button>
                     </div>
                     <div id="file-list" class="p-6 max-h-[500px] overflow-y-auto space-y-1">
-                        <!-- Files populated here -->
                     </div>
                 </div>
 
                 <div class="space-y-6">
-                    <div class="glass rounded-[2rem] p-8">
-                        <h2 class="text-lg font-bold mb-6 flex items-center gap-2">
-                            <span class="w-1 h-4 bg-blue-500 rounded-full"></span>
-                            Operations
-                        </h2>
-                        <div class="space-y-6">
-                            <div>
-                                <p class="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-2">Last Update</p>
-                                <p id="last-sync" class="text-sm mono text-slate-300">--</p>
-                            </div>
-                            <div>
-                                <p class="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-2">Query Gateway</p>
-                                <div class="flex items-center gap-2">
-                                    <span class="px-2 py-1 rounded bg-blue-500/10 text-blue-400 text-[10px] mono">POST</span>
-                                    <p class="text-sm mono text-slate-300">/query</p>
-                                </div>
-                            </div>
+                <div class="glass rounded-[2rem] p-8">
+                    <h2 class="text-lg font-bold mb-6 flex items-center gap-2 text-white">
+                        <span class="w-1 h-4 bg-blue-500 rounded-full"></span>
+                        Operations
+                    </h2>
+                    <div class="space-y-6">
+                        <div>
+                            <p class="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-2">Last Update</p>
+                            <p id="last-sync" class="text-sm mono text-slate-300">--</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-2">Connectivity</p>
+                            <button onclick="testQuery()" class="w-full py-2 rounded-xl bg-blue-500/10 text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-colors border border-blue-500/20">
+                                Ping Aether (Trigger Load)
+                            </button>
                         </div>
                     </div>
+                </div>
                     
                     <div class="p-8 rounded-[2rem] border border-blue-500/20 bg-blue-500/[0.02]">
-                        <h3 class="text-blue-400 text-xs font-bold uppercase mb-2">Integration Pro-Tip</h3>
-                        <p class="text-slate-400 text-xs leading-relaxed">
-                            Aether works best when paired with Gemini CLI. Use the query endpoint to inject real-time code context into your prompts.
+                        <h3 class="text-blue-400 text-xs font-bold uppercase mb-2 italic">Efficiency Mode Active</h3>
+                        <p class="text-slate-500 text-xs leading-relaxed">
+                            Index is not loaded into RAM until first query. Use <strong>Purge</strong> to free memory when session is idle.
                         </p>
                     </div>
                 </div>
@@ -245,51 +267,81 @@ async def dashboard():
         </div>
 
         <script>
+            async function releaseRAM() {{
+                await fetch('/release', {{ method: 'POST' }});
+                updateStats();
+            }}
+
+            async function testQuery() {{
+                await fetch('/query', {{ 
+                    method: 'POST', 
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ prompt: 'Connection check' }})
+                }});
+                updateStats();
+            }}
+
             async function updateStats() {{
-                const res = await fetch('/stats');
-                const data = await res.json();
-                
-                document.getElementById('stat-nodes').innerText = data.node_count;
-                document.getElementById('stat-files').innerText = data.file_count;
-                document.getElementById('stat-size').innerText = data.total_size_kb + ' KB';
-                document.getElementById('last-sync').innerText = data.sync_status.last_sync;
-                document.getElementById('project-label').innerText = data.project_name;
-                document.getElementById('project-path-display').innerText = './' + data.project_path;
+                try {{
+                    const res = await fetch('/stats');
+                    const data = await res.json();
+                    
+                    document.getElementById('stat-nodes').innerText = data.node_count;
+                    document.getElementById('stat-files').innerText = data.file_count;
+                    document.getElementById('last-sync').innerText = data.sync_status.last_sync;
+                    document.getElementById('project-label').innerText = data.project_name;
+                    document.getElementById('project-path-display').innerText = './' + data.project_path;
 
-                const statusText = document.getElementById('status-text');
-                const statusDot = document.getElementById('status-dot');
-                const btn = document.getElementById('sync-btn');
+                    // RAM State
+                    const ramStatus = document.getElementById('ram-status');
+                    const ramPulse = document.getElementById('ram-pulse');
+                    if (data.is_loaded) {{
+                        ramStatus.innerText = data.ram_usage_mb + ' MB';
+                        ramStatus.className = 'text-3xl font-bold italic mono text-blue-400';
+                        ramPulse.style.width = '100%';
+                    }} else {{
+                        ramStatus.innerText = 'SLEEP (' + data.ram_usage_mb + ' MB)';
+                        ramStatus.className = 'text-sm font-bold italic mono text-slate-700 mt-2';
+                        ramPulse.style.width = '0%';
+                    }}
 
-                if (data.sync_status.status === 'syncing') {{
-                    statusText.innerText = 'Syncing...';
-                    statusDot.className = 'w-2 h-2 rounded-full bg-blue-500 syncing';
-                    btn.disabled = true;
-                    btn.innerText = 'Wait...';
-                    btn.className = 'bg-slate-800 text-slate-500 cursor-not-allowed px-8 py-3 rounded-2xl font-bold text-sm shadow-none';
-                }} else {{
-                    statusText.innerText = 'Ready';
-                    statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
-                    btn.disabled = false;
-                    btn.innerText = 'Synchronize';
-                    btn.className = 'bg-white text-slate-900 hover:bg-blue-400 hover:text-white transition-all px-8 py-3 rounded-2xl font-bold text-sm shadow-xl';
+                    const statusText = document.getElementById('status-text');
+                    const statusDot = document.getElementById('status-dot');
+                    const btn = document.getElementById('sync-btn');
+
+                    if (data.sync_status.status === 'syncing') {{
+                        statusText.innerText = 'Syncing...';
+                        statusDot.className = 'w-2 h-2 rounded-full bg-blue-500 syncing';
+                        btn.disabled = true;
+                        btn.innerText = 'Wait...';
+                        btn.className = 'bg-slate-800 text-slate-500 cursor-not-allowed px-8 py-3 rounded-2xl font-bold text-sm shadow-none';
+                    }} else {{
+                        statusText.innerText = 'Ready';
+                        statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+                        btn.disabled = false;
+                        btn.innerText = 'Synchronize';
+                        btn.className = 'bg-white text-slate-900 hover:bg-blue-400 hover:text-white transition-all px-8 py-3 rounded-2xl font-bold text-sm shadow-xl';
+                    }}
+
+                    const list = document.getElementById('file-list');
+                    list.innerHTML = data.files.map(f => `
+                        <div class="flex items-center gap-4 p-3 rounded-2xl hover:bg-white/[0.03] transition-colors group border border-transparent hover:border-white/5">
+                            <div class="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-[10px] font-black mono text-slate-500 group-hover:text-blue-400 transition-colors">
+                                ${{f.split('.').pop().toUpperCase()}}
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-sm font-medium text-slate-300 group-hover:text-white transition-colors truncate">
+                                    ${{f.split(/[\\\\/]/).pop()}}
+                                </span>
+                                <span class="text-[10px] text-slate-600 mono truncate max-w-[200px] md:max-w-md italic">
+                                    ${{f}}
+                                </span>
+                            </div>
+                        </div>
+                    `).join('');
+                }} catch (e) {{
+                    console.error("Stats refresh failed", e);
                 }}
-
-                const list = document.getElementById('file-list');
-                list.innerHTML = data.files.map(f => `
-                    <div class="flex items-center gap-4 p-3 rounded-2xl hover:bg-white/[0.03] transition-colors group border border-transparent hover:border-white/5">
-                        <div class="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-[10px] font-black mono text-slate-500 group-hover:text-blue-400 transition-colors">
-                            ${{f.split('.').pop().toUpperCase()}}
-                        </div>
-                        <div class="flex flex-col">
-                            <span class="text-sm font-medium text-slate-300 group-hover:text-white transition-colors truncate">
-                                ${{f.split(/[\\\\/]/).pop()}}
-                            </span>
-                            <span class="text-[10px] text-slate-600 mono truncate max-w-[200px] md:max-w-md italic">
-                                ${{f}}
-                            </span>
-                        </div>
-                    </div>
-                `).join('');
             }}
 
             async function triggerSync() {{
@@ -303,18 +355,6 @@ async def dashboard():
     </body>
     </html>
     """
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "storage_exists": os.path.exists("./storage")}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "storage_exists": os.path.exists("./storage")}
 
 if __name__ == "__main__":
     import uvicorn

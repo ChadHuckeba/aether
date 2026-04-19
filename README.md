@@ -3,19 +3,19 @@
 
 Aether is a specialized context provider built on LlamaIndex and Google Gemini. It serves as a real-time "Code Oracle," indexing local source code to provide high-fidelity Retrieval-Augmented Generation (RAG) for development, architectural analysis, and project discovery.
 
-## Features
+## Key Features
 
-- **Project Agnostic**: Easily switch between different projects by updating the `.env` configuration.
-- **Local-First Indexing**: Automatically synchronizes with any local repository to maintain tight context on real-time changes.
-- **FastAPI Backend**: Provides a `/query` endpoint for semantic search and code analysis across your project.
-- **Interactive Dashboard**: A modern web interface for monitoring index health, viewing vector node statistics, and triggering synchronizations for the active project.
-- **Gemini Powered**: Utilizes `gemini-1.5-flash` for high-speed reasoning and `gemini-embedding-001` for deep semantic understanding.
+- **Efficiency Mode (Lazy Loading)**: Aether stays in a "Sleep" state with a minimal memory footprint until you perform your first query.
+- **Project Agnostic**: Easily switch context by updating `PROJECT_NAME` and `PROJECT_PATH` in your `.env`.
+- **Local-First Indexing**: Syncs directly with your local filesystem to capture uncommitted code changes instantly.
+- **Interactive Dashboard**: A glassmorphic web interface for monitoring RAM usage, viewing indexed nodes, and triggering manual purges/syncs.
+- **Clean Station Workflow**: Use the included session manager to start and stop the engine with zero leftover background processes.
 
 ## Architecture
 
-1.  **Ingestion (`ingestion.py`)**: Uses `SimpleDirectoryReader` to parse codebases from a path defined in your environment.
-2.  **Context Server (`server.py`)**: An asynchronous FastAPI server that dynamically adapts its branding and sync logic based on your active project.
-3.  **Storage (`/storage`)**: Local persistence for vector stores and document metadata (ignored by Git for security).
+1.  **Ingestion (`ingestion.py`)**: Handles recursive parsing and vectorization of project source code.
+2.  **Context Server (`server.py`)**: A FastAPI backend that manages the lazy loading singleton and serves the dashboard.
+3.  **Storage (`/storage`)**: Local persistence for the vector index (Git-ignored for security).
 
 ## Getting Started
 
@@ -24,37 +24,38 @@ Aether is a specialized context provider built on LlamaIndex and Google Gemini. 
 - Google Gemini API Key
 
 ### Configuration
-Create a `.env` file in the root directory:
+Create a `.env` file:
 ```env
 # API Keys
 GEMINI_API_KEY=your_key_here
 
 # Active Project Configuration
-PROJECT_NAME=MyProject
-PROJECT_PATH=C:/path/to/your/code
+PROJECT_NAME=Vanguard
+PROJECT_PATH=G:/path/to/vanguard
 ```
 
-### Running the Engine
-1. **Sync Dependencies**:
-   ```bash
-   uv sync
-   ```
-2. **Start the Context Server**:
-   ```bash
-   uv run python server.py
-   ```
-3. **Access the Dashboard**:
-   Open [http://localhost:8000](http://localhost:8000) in your browser.
+## Session Management
 
-## API Usage
+Aether includes a PowerShell session manager to keep your workstation clean.
 
-### Query Context
-```bash
-Invoke-RestMethod -Uri "http://localhost:8000/query" `
-  -Method Post `
-  -ContentType "application/json" `
-  -Body '{"prompt": "Explain the core architecture of this project."}'
+```powershell
+# Start Aether in the background
+./session.ps1 start
+
+# Check real-time RAM usage and PID
+./session.ps1 status
+
+# Stop Aether and free all resources
+./session.ps1 stop
 ```
+
+## Dashboard Usage
+
+Access the dashboard at **[http://localhost:8000](http://localhost:8000)**.
+
+- **Ping Aether**: Pre-warms the engine by loading the project index into RAM.
+- **Purge**: Clears the index from memory while keeping the service alive (Efficiency Mode).
+- **Synchronize**: Re-scans the local project path for code changes.
 
 ---
 © 2026 SurvivalStack
