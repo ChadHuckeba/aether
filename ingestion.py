@@ -1,33 +1,13 @@
 import os
 from pathlib import Path
-from dotenv import load_dotenv
-from llama_index.core import VectorStoreIndex, Settings, SimpleDirectoryReader
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage
 from llama_index.readers.github import GithubRepositoryReader, GithubClient
-from llama_index.llms.google_genai import GoogleGenAI
-from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from llama_index.core.node_parser import SentenceSplitter
+from config import REQUIRED_EXTS
 
-# Environment Setup
-env_path = Path(__file__).parent / ".env"
-load_dotenv(dotenv_path=env_path)
+# No need to manually load_dotenv or init Settings, config.py does it on import
 
-# Global Settings Configuration
-Settings.llm = GoogleGenAI(
-    model="gemini-3-flash-preview", 
-    api_key=os.getenv("GEMINI_API_KEY")
-)
-
-Settings.embed_model = GoogleGenAIEmbedding(
-    model_name="models/gemini-embedding-001", 
-    api_key=os.getenv("GEMINI_API_KEY")
-)
-
-Settings.embed_batch_size = 100
 token = os.getenv("GITHUB_TOKEN")
-
-from llama_index.core import VectorStoreIndex, Settings, SimpleDirectoryReader, StorageContext, load_index_from_storage
-
-# ... (Environment and Settings unchanged)
 
 def sync_local_dir_custom(dir_path: str, storage_dir: str):
     """
@@ -43,7 +23,7 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str):
         input_dir=dir_path,
         recursive=True,
         exclude=["node_modules", ".git", "__pycache__", "venv", ".venv", "storage"],
-        required_exts=[".py", ".md", ".ps1", ".txt", ".json", ".toml", ".yaml", ".yml"]
+        required_exts=REQUIRED_EXTS
     )
     
     documents = reader.load_data()
@@ -83,8 +63,13 @@ def sync_local_dir(dir_path: str, project_name: str = None):
 def sync_github_repo(owner: str, repo: str, branch: str = "main"):
     """
     Orchestrates the retrieval and indexing of a specific GitHub repository.
+    Uses incremental indexing (refresh) for efficiency if possible.
     """
-    print(f"Starting sync for {owner}/{repo}...")
+    project_name = f"{owner}_{repo}"
+    storage_dir = get_storage_path(project_name)
+    docstore_exists = (storage_dir / "docstore.json").exists()
+    
+    print(f"Starting sync for {owner}/{repo} (Branch: {branch})...")
     
     github_client = GithubClient(github_token=token)
     
@@ -95,38 +80,37 @@ def sync_github_repo(owner: str, repo: str, branch: str = "main"):
         use_parser=False,
         verbose=True,
         filter_directories=(
-            ["node_modules", ".git", "__pycache__", "venv", ".venv", "docs"], 
+            ["node_modules", ".git", "__pycache__", "venv", ".venv", "docs", "storage"], 
             GithubRepositoryReader.FilterType.EXCLUDE
         ),
         filter_file_extensions=(
-            [".py", ".md", ".ps1", ".txt"], 
+            REQUIRED_EXTS, 
             GithubRepositoryReader.FilterType.INCLUDE
         )
     )
     
-    # --- LOGIC MUST BE INDENTED WITHIN THE FUNCTION ---
     print("Fetching documents from GitHub...")
-    raw_documents = reader.load_data(branch=branch)
+    documents = reader.load_data(branch=branch)
     
-    # Parsing and Node Hygiene
-    parser = SentenceSplitter(chunk_size=1024, chunk_overlap=20)
-    nodes = parser.get_nodes_from_documents(raw_documents)
+    if docstore_exists:
+        print("Existing index found. Refreshing changed documents...")
+        storage_context = StorageContext.from_defaults(persist_dir=str(storage_dir))
+        index = load_index_from_storage(storage_context)
+        refreshed_docs = index.refresh_ref_docs(documents)
+        
+        updated_count = sum(refreshed_docs)
+        if updated_count > 0:
+            print(f"Updated {updated_count} documents.")
+            index.storage_context.persist(persist_dir=str(storage_dir))
+        else:
+            print("No changes detected. GitHub index is up to date.")
+    else:
+        print(f"No index found. Performing initial indexing of {len(documents)} documents...")
+        # Build and Persist Index
+        index = VectorStoreIndex.from_documents(documents)
+        index.storage_context.persist(persist_dir=str(storage_dir))
     
-    # Filter empty content to prevent embedding API KeyErrors
-    clean_nodes = [node for node in nodes if node.get_content().strip()]
-    print(f"Indexing {len(clean_nodes)} valid nodes...")
-
-    # Build and Persist Index
-    index = VectorStoreIndex(clean_nodes)
-    
-    project_name = f"{owner}_{repo}"
-    folder = project_name.lower().replace(" ", "_")
-    storage_dir = Path("./storage") / folder
-    storage_dir.mkdir(parents=True, exist_ok=True)
-    
-    index.storage_context.persist(persist_dir=str(storage_dir))
-    
-    print(f"Sync complete. Aether is ready on the Stable Tier. Storage: {storage_dir}")
+    print(f"Sync complete. Storage: {storage_dir}")
 
 if __name__ == "__main__":
     project_path = os.getenv("PROJECT_PATH")
