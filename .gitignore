@@ -198,13 +198,19 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# LlamaIndex Storage
+# Aether Data Isolation
+data/storage/
+data/projects.json
+!data/.gitkeep
+!data/storage/.gitkeep
+
+# LlamaIndex Storage (Legacy/Root)
 storage/
+
+# Local Project Registry (Legacy/Root)
+projects.json
 
 # Marimo
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-
-# Local Project Registry
-projects.json
