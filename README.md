@@ -28,7 +28,7 @@ Aether is organized as a modular package in `src/aether/`:
 - Google Gemini API Key
 
 ### Configuration
-Create a `.env` file in the root directory:
+1. Create a `.env` file in the root directory:
 ```env
 # API Keys
 GEMINI_API_KEY=your_key_here
@@ -37,6 +37,12 @@ GEMINI_API_KEY=your_key_here
 PROJECT_NAME=Vanguard
 PROJECT_PATH=/path/to/your/project
 ```
+
+2. Initialize the project registry:
+```bash
+cp data/projects.json.example data/projects.json
+```
+Edit `data/projects.json` to map your project names to their local absolute paths.
 
 ## Session Management
 
