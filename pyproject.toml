@@ -1,7 +1,7 @@
 [project]
-name = "svc-context-provider"
+name = "aether-context-engine"
 version = "0.1.0"
-description = "Add your description here"
+description = "Universal context engine for AI-assisted development"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -15,3 +15,13 @@ dependencies = [
     "psutil>=7.2.2",
     "watchdog>=6.0.0",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

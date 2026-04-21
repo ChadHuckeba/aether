@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import psutil
-from config import get_storage_path
+from aether.core.config import get_storage_path
 
 def get_index_metrics(project_name: str, project_path: Optional[str] = None) -> Dict[str, Any]:
     """

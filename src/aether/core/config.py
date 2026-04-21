@@ -6,15 +6,20 @@ from llama_index.llms.google_genai import GoogleGenAI
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 
 # 1. Environment and Path Setup
-BASE_DIR = Path(__file__).parent.resolve()
-env_path = BASE_DIR / ".env"
+# Path logic: src/aether/core/config.py -> parent(core) -> parent(aether) -> parent(src) = Root
+PACKAGE_DIR = Path(__file__).parent.parent.resolve()
+SRC_DIR = PACKAGE_DIR.parent
+PROJECT_ROOT = SRC_DIR.parent
+
+env_path = PROJECT_ROOT / ".env"
 load_dotenv(dotenv_path=env_path)
 
 # 2. Key Constants
-# Use AETHER_SAFE_ROOT from env, fallback to parent of current directory
-SAFE_ROOT = Path(os.getenv("AETHER_SAFE_ROOT", str(BASE_DIR.parent))).resolve()
-STORAGE_DIR = BASE_DIR / "storage"
-PROJECTS_FILE = BASE_DIR / "projects.json"
+# Use AETHER_SAFE_ROOT from env, fallback to parent of project root
+SAFE_ROOT = Path(os.getenv("AETHER_SAFE_ROOT", str(PROJECT_ROOT.parent))).resolve()
+DATA_DIR = PROJECT_ROOT / "data"
+STORAGE_DIR = DATA_DIR / "storage"
+PROJECTS_FILE = DATA_DIR / "projects.json"
 REQUIRED_EXTS = [".py", ".md", ".ps1", ".txt", ".json", ".toml", ".yaml", ".yml"]
 
 # 3. Global LlamaIndex Settings

@@ -1,4 +1,5 @@
 # ui_templates.py
+from aether.core.config import SAFE_ROOT
 
 COMMON_STYLE = """
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono&display=swap');
@@ -85,20 +86,19 @@ def get_dashboard_html(active_project: str):
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-20">
                 <div class="lg:col-span-2 glass rounded-[2rem] overflow-hidden">
-                    <div class="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
-                        <div>
-                            <h2 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-                                Knowledge Base 
-                                <span class="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full font-mono">./<span id="project-path-display">--</span></span>
-                            </h2>
-                        </div>
-                        <button id="sync-btn" onclick="triggerSync()" class="bg-white text-slate-900 hover:bg-blue-400 hover:text-white transition-all px-8 py-3 rounded-2xl font-bold text-sm shadow-xl">
-                            Synchronize
-                        </button>
+                <div class="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
+                    <div>
+                        <h2 class="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                            Knowledge Base 
+                            <span class="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full font-mono"><span id="project-path-display">--</span></span>
+                        </h2>
                     </div>
-                    <div id="file-list" class="p-6 max-h-[500px] overflow-y-auto space-y-1"></div>
+                    <button id="sync-btn" onclick="triggerSync()" class="bg-white text-slate-900 hover:bg-blue-400 hover:text-white transition-all px-8 py-3 rounded-2xl font-bold text-sm shadow-xl">
+                        Synchronize
+                    </button>
                 </div>
-
+                <div id="file-list" class="p-6 max-h-[500px] overflow-y-auto space-y-1"></div>
+                </div>
                 <div class="space-y-6">
                     <div class="glass rounded-[2rem] p-8">
                         <h2 class="text-lg font-bold mb-6 flex items-center gap-2 text-white">
