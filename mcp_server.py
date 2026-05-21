@@ -8,7 +8,7 @@ AETHER_BASE_URL = os.getenv("AETHER_BASE_URL", "http://localhost:8000")
 TIMEOUT = 30.0
 
 # Initialize MCP Server
-mcp = FastMCP("Aether")
+mcp = FastMCP("aether")
 
 async def call_aether(endpoint: str, method: str = "POST", json: dict = None):
     """Internal helper to handle Aether API calls with error handling."""
