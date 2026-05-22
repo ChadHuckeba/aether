@@ -80,8 +80,38 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str):
             logger.info("No changes detected. Index is up to date.")
     else:
         logger.info(f"No index found. Performing initial indexing of {len(documents)} documents...")
-        index = VectorStoreIndex.from_documents(documents)
-        index.storage_context.persist(persist_dir=storage_dir)
+        index = VectorStoreIndex([])
+        batch_size = 5
+        for i in range(0, len(documents), batch_size):
+            batch = documents[i:i + batch_size]
+            logger.info(f"Indexing batch {i//batch_size + 1}/{(len(documents)-1)//batch_size + 1} ({len(batch)} docs)...")
+            
+            retries = 5
+            for attempt in range(retries):
+                try:
+                    for doc in batch:
+                        # Prevent duplicate insertion on retry attempts
+                        ref_doc_info = index.docstore.get_all_ref_doc_info()
+                        if ref_doc_info and doc.doc_id in ref_doc_info:
+                            continue
+                        index.insert(doc)
+                    break
+                except Exception as e:
+                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "503" in str(e):
+                        wait_time = 15 * (attempt + 1)
+                        logger.warning(f"Rate limited or server unavailable. Waiting {wait_time}s before retry (Attempt {attempt+1}/{retries})...")
+                        time.sleep(wait_time)
+                    else:
+                        raise e
+            else:
+                raise RuntimeError("Failed to index documents after max retries due to rate limiting.")
+            
+            # Persist after each successful batch so progress is not lost on failure
+            index.storage_context.persist(persist_dir=storage_dir)
+            
+            # Sleep between batches to respect rate limits
+            if i + batch_size < len(documents):
+                time.sleep(2)
     
     logger.info("Sync complete.")
 
