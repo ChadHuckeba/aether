@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from pathlib import Path
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage
@@ -26,16 +27,54 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str):
     )
     
     documents = reader.load_data()
+    for doc in documents:
+        if doc.metadata and "file_path" in doc.metadata:
+            doc.doc_id = doc.metadata["file_path"]
 
     if docstore_exists:
         logger.info("Existing index found. Refreshing changed documents...")
         storage_context = StorageContext.from_defaults(persist_dir=storage_dir)
         index = load_index_from_storage(storage_context)
-        refreshed_docs = index.refresh_ref_docs(documents)
-        
+        batch_size = 5
+        refreshed_docs = []
+        for i in range(0, len(documents), batch_size):
+            batch = documents[i:i + batch_size]
+            logger.info(f"Refreshing batch {i//batch_size + 1}/{(len(documents)-1)//batch_size + 1} ({len(batch)} docs)...")
+            
+            retries = 5
+            for attempt in range(retries):
+                try:
+                    batch_refreshed = index.refresh_ref_docs(batch)
+                    refreshed_docs.extend(batch_refreshed)
+                    break
+                except Exception as e:
+                    if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "503" in str(e):
+                        wait_time = 15 * (attempt + 1)
+                        logger.warning(f"Rate limited or server unavailable. Waiting {wait_time}s before retry (Attempt {attempt+1}/{retries})...")
+                        time.sleep(wait_time)
+                    else:
+                        raise e
+            else:
+                raise RuntimeError("Failed to refresh documents after max retries due to rate limiting.")
+            
+            # Sleep between batches to respect rate limits
+            time.sleep(2)
+
         updated_count = sum(refreshed_docs)
-        if updated_count > 0:
-            logger.info(f"Updated {updated_count} documents.")
+
+        # Remove docs for files that no longer exist on disk
+        existing_doc_ids = {doc.doc_id for doc in documents}
+        ref_doc_info = index.docstore.get_all_ref_doc_info()
+        all_stored_ids = set(ref_doc_info.keys()) if ref_doc_info else set()
+        stale_ids = all_stored_ids - existing_doc_ids
+        for doc_id in stale_ids:
+            index.delete_ref_doc(doc_id, delete_from_docstore=True)
+        if stale_ids:
+            logger.info(f"Purged {len(stale_ids)} stale documents.")
+
+        # Persist if anything changed
+        if updated_count > 0 or stale_ids:
+            logger.info(f"Updated {updated_count} documents, purged {len(stale_ids)} stale documents.")
             index.storage_context.persist(persist_dir=storage_dir)
         else:
             logger.info("No changes detected. Index is up to date.")
