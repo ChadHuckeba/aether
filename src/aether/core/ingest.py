@@ -22,14 +22,12 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str):
     reader = SimpleDirectoryReader(
         input_dir=dir_path,
         recursive=True,
+        filename_as_id=True,
         exclude=["node_modules", ".git", "__pycache__", "venv", ".venv", "storage"],
         required_exts=REQUIRED_EXTS
     )
     
     documents = reader.load_data()
-    for doc in documents:
-        if doc.metadata and "file_path" in doc.metadata:
-            doc.doc_id = doc.metadata["file_path"]
 
     if docstore_exists:
         logger.info("Existing index found. Refreshing changed documents...")
