@@ -53,7 +53,7 @@ def init_settings():
     )
 
     # Performance Settings
-    Settings.embed_batch_size = 100
+    Settings.embed_batch_size = 10
     Settings.chunk_size = 1024
 
 # Automatically initialize settings on import
