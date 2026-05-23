@@ -9,7 +9,7 @@ from aether.core.config import REQUIRED_EXTS, get_storage_path
 logger = logging.getLogger("aether.ingest")
 token = os.getenv("GITHUB_TOKEN")
 
-def sync_local_dir_custom(dir_path: str, storage_dir: str, exclude_dirs: list = []):
+def sync_local_dir_custom(dir_path: str, storage_dir: str, exclude_dirs: list = []) -> int:
     """
     Orchestrates the retrieval and indexing of a local directory into a specific storage folder.
     Uses incremental indexing (refresh) for efficiency.
@@ -31,6 +31,7 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str, exclude_dirs: list = 
     )
     
     documents = reader.load_data()
+    batch_count = 0
 
     if docstore_exists:
         logger.info("Existing index found. Refreshing changed documents...")
@@ -58,6 +59,7 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str, exclude_dirs: list = 
             else:
                 raise RuntimeError("Failed to refresh documents after max retries due to rate limiting.")
             
+            batch_count += 1
             # Sleep between batches to respect rate limits
             time.sleep(2)
 
@@ -107,6 +109,7 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str, exclude_dirs: list = 
             else:
                 raise RuntimeError("Failed to index documents after max retries due to rate limiting.")
             
+            batch_count += 1
             # Persist after each successful batch so progress is not lost on failure
             index.storage_context.persist(persist_dir=storage_dir)
             
@@ -115,6 +118,7 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str, exclude_dirs: list = 
                 time.sleep(2)
     
     logger.info("Sync complete.")
+    return batch_count
 
 def sync_local_dir(dir_path: str, project_name: str = None):
     """Orchestrates retrieval and indexing with project-specific storage."""

@@ -32,6 +32,7 @@ SAFE_ROOT = Path(os.getenv("AETHER_SAFE_ROOT", str(PROJECT_ROOT.parent))).resolv
 DATA_DIR = PROJECT_ROOT / "data"
 STORAGE_DIR = DATA_DIR / "storage"
 PROJECTS_FILE = DATA_DIR / "projects.json"
+QUOTA_FILE = DATA_DIR / "quota.json"
 REQUIRED_EXTS = [".py", ".md", ".ps1", ".txt", ".json", ".toml", ".yaml", ".yml"]
 
 # 3. Global LlamaIndex Settings
