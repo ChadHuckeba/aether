@@ -62,6 +62,9 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str, exclude_dirs: list = 
             batch_count += 1
             # Sleep between batches to respect rate limits
             time.sleep(2)
+            
+            # Persist after each successful batch so progress is not lost on failure
+            index.storage_context.persist(persist_dir=storage_dir)
 
         updated_count = sum(refreshed_docs)
 
