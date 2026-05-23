@@ -9,7 +9,7 @@ from aether.core.config import REQUIRED_EXTS, get_storage_path
 logger = logging.getLogger("aether.ingest")
 token = os.getenv("GITHUB_TOKEN")
 
-def sync_local_dir_custom(dir_path: str, storage_dir: str):
+def sync_local_dir_custom(dir_path: str, storage_dir: str, exclude_dirs: list = []):
     """
     Orchestrates the retrieval and indexing of a local directory into a specific storage folder.
     Uses incremental indexing (refresh) for efficiency.
@@ -19,11 +19,14 @@ def sync_local_dir_custom(dir_path: str, storage_dir: str):
     storage_path = Path(storage_dir)
     docstore_exists = (storage_path / "docstore.json").exists()
 
+    if exclude_dirs is None:
+        exclude_dirs = []
+
     reader = SimpleDirectoryReader(
         input_dir=dir_path,
         recursive=True,
         filename_as_id=True,
-        exclude=["node_modules", ".git", "__pycache__", "venv", ".venv", "storage"],
+        exclude=["node_modules", ".git", "__pycache__", "venv", ".venv", "storage"] + exclude_dirs,
         required_exts=REQUIRED_EXTS
     )
     

@@ -24,10 +24,27 @@ from aether.ui.templates import get_dashboard_html, get_manage_html
 logger = logging.getLogger("aether.api")
 PROJECTS = load_projects()
 active_project = list(PROJECTS.keys())[0] if PROJECTS else "None"
-sync_status = {"status": "idle", "last_sync": "Never", "auto_sync": True}
+sync_status = {
+    "status": "idle",
+    "last_sync": "Never",
+    "auto_sync": False,
+    "pending_changes": False,
+    "last_ingested": None
+}
 _cached_index = None
 _stats_cache = {}
 observer = None
+
+def get_project_path(name: str) -> Optional[str]:
+    entry = PROJECTS.get(name)
+    if isinstance(entry, dict):
+        return entry.get("path")
+    return entry
+
+def mark_pending_changes():
+    global sync_status
+    sync_status["pending_changes"] = True
+    logger.info(f"Pending changes flagged by watcher callback for project: {active_project}")
 
 # --- Lifespan Management ---
 
@@ -40,16 +57,18 @@ def restart_watcher():
         except:
             pass
     
-    project_path = PROJECTS.get(active_project)
-    if project_path and os.path.exists(project_path) and sync_status["auto_sync"]:
+    project_path = get_project_path(active_project)
+    if project_path and os.path.exists(project_path):
         observer = setup_watcher(
             path=project_path,
             loop=asyncio.get_event_loop(),
             on_modified_callback=trigger_auto_sync,
-            required_exts=REQUIRED_EXTS
+            required_exts=REQUIRED_EXTS,
+            auto_sync=sync_status["auto_sync"],
+            on_change_detected_callback=mark_pending_changes
         )
         if observer:
-            logger.info(f"Watching {active_project} at {project_path}")
+            logger.info(f"Watching {active_project} at {project_path} (auto_sync={sync_status['auto_sync']})")
 
 async def trigger_auto_sync():
     """Callback for watcher."""
@@ -57,8 +76,14 @@ async def trigger_auto_sync():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global PROJECTS, sync_status
     if not os.getenv("GEMINI_API_KEY"):
         logger.error("CRITICAL ERROR: GEMINI_API_KEY is not set.")
+    
+    # Read last_ingested on startup
+    active_entry = PROJECTS.get(active_project)
+    if isinstance(active_entry, dict):
+        sync_status["last_ingested"] = active_entry.get("last_ingested")
     
     restart_watcher()
     yield
@@ -77,10 +102,33 @@ async def run_ingestion_task():
         
     sync_status["status"] = "syncing"
     try:
-        path = PROJECTS[active_project]
-        result = await run_ingestion(active_project, path)
+        path = get_project_path(active_project)
+        exclude_dirs = []
+        if active_project in PROJECTS:
+            entry = PROJECTS[active_project]
+            if isinstance(entry, dict):
+                exclude_dirs = entry.get("exclude_dirs", [])
+        result = await run_ingestion(active_project, path, exclude_dirs)
         sync_status.update(result)
         _cached_index = None # Invalidate cache
+        
+        # Reset pending changes
+        sync_status["pending_changes"] = False
+        
+        # Get UTC ISO 8601 timestamp
+        from datetime import datetime
+        utc_ts = datetime.utcnow().isoformat() + "Z"
+        sync_status["last_ingested"] = utc_ts
+        
+        # Update projects.json entry
+        if active_project in PROJECTS:
+            entry = PROJECTS[active_project]
+            if isinstance(entry, dict):
+                entry["last_ingested"] = utc_ts
+            else:
+                PROJECTS[active_project] = {"path": entry, "last_ingested": utc_ts}
+            save_projects(PROJECTS)
+            
     except Exception as e:
         logger.error(f"Ingestion error: {e}")
         sync_status["status"] = f"error: {str(e)}"
@@ -114,24 +162,33 @@ async def query_endpoint(request: QueryRequest):
 
 @app.post("/switch")
 async def switch_project(request: SwitchRequest):
-    global active_project, _cached_index
+    global active_project, _cached_index, sync_status
     if request.name not in PROJECTS:
         raise HTTPException(status_code=404, detail="Project not found")
     
     active_project = request.name
     _cached_index = None 
     gc.collect()
+    
+    # Read last_ingested for the new active project
+    active_entry = PROJECTS.get(active_project)
+    if isinstance(active_entry, dict):
+        sync_status["last_ingested"] = active_entry.get("last_ingested")
+    else:
+        sync_status["last_ingested"] = None
+    sync_status["pending_changes"] = False
+    
     restart_watcher()
     return {"active": active_project}
 
 @app.get("/projects")
 async def get_projects_endpoint():
-    return get_project_list(PROJECTS)
+    return [{"name": k, "path": (v.get("path") if isinstance(v, dict) else v)} for k, v in PROJECTS.items()]
 
 @app.post("/projects")
 async def add_project_endpoint(request: ProjectConfig):
     global PROJECTS
-    PROJECTS[request.name] = request.path
+    PROJECTS[request.name] = {"path": request.path, "last_ingested": None, "exclude_dirs": []}
     save_projects(PROJECTS)
     return {"status": "added"}
 
@@ -169,7 +226,7 @@ async def get_stats():
         if active_project not in PROJECTS:
             return {"error": "No active project", "available_projects": list(PROJECTS.keys())}
 
-        project_path = PROJECTS.get(active_project)
+        project_path = get_project_path(active_project)
         storage_dir = get_storage_path(active_project)
         docstore_path = storage_dir / "docstore.json"
         
