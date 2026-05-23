@@ -38,7 +38,18 @@ async def query_codebase(prompt: str) -> str:
     - Use this proactively to understand module behavior, architecture, dependencies, or recent changes.
     """
     result = await call_aether("/query", json={"prompt": prompt})
-    return result.get("response") or result.get("error", "Unknown error")
+    response_text = result.get("response") or result.get("error", "Unknown error")
+    
+    # Prepend warning if there are pending changes in stats
+    try:
+        stats = await call_aether("/stats", method="GET")
+        if isinstance(stats, dict) and stats.get("sync_status", {}).get("pending_changes") is True:
+            warning = "[Warning: index has pending changes — run refresh_index before relying on this result]\n\n"
+            response_text = warning + response_text
+    except Exception:
+        pass
+        
+    return response_text
 
 @mcp.tool()
 async def refresh_index() -> str:
