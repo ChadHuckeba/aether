@@ -81,12 +81,12 @@ def _save_quota(quota: dict):
 
 # --- Lifespan Management ---
 
-def restart_watcher():
+async def restart_watcher():
     global observer
     if observer:
         try:
             observer.stop()
-            observer.join()
+            await asyncio.to_thread(observer.join)
         except:
             pass
     
@@ -123,11 +123,11 @@ async def lifespan(app: FastAPI):
     sync_status["embed_calls_today"] = quota.get("embed_calls")
     sync_status["embed_limit"] = quota.get("embed_limit")
     
-    restart_watcher()
+    await restart_watcher()
     yield
     if observer:
         observer.stop()
-        observer.join()
+        await asyncio.to_thread(observer.join)
 
 app = FastAPI(title="Aether Context Engine", lifespan=lifespan)
 
@@ -236,7 +236,7 @@ async def switch_project(request: SwitchRequest):
     sync_status["embed_calls_today"] = quota.get("embed_calls")
     sync_status["embed_limit"] = quota.get("embed_limit")
     
-    restart_watcher()
+    await restart_watcher()
     return {"active": active_project}
 
 @app.get("/projects")
