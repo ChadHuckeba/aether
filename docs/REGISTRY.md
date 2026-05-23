@@ -9,10 +9,14 @@ The source of truth for all tracked contexts. This file is automatically updated
 ### Schema
 ```json
 {
-    "Project1": "/absolute/path/to/project1",
-    "Project2": "/absolute/path/to/project2"
+    "ProjectName": {
+        "path": "/absolute/path/to/project",
+        "last_ingested": "2026-05-23T00:00:00Z",
+        "exclude_dirs": ["dist", ".egg-info"]
+    }
 }
 ```
+*Note: `exclude_dirs` is optional and defaults to an empty list `[]` if omitted.*
 
 ## 2. Security Boundary (`SAFE_ROOT`)
 To prevent accidental or malicious indexing of sensitive system directories, Aether enforces a `SAFE_ROOT` boundary.

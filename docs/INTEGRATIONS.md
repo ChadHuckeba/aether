@@ -14,7 +14,7 @@ To add Aether as a tool in your agent's configuration:
     "command": "/path/to/aether/.venv/bin/python",
     "args": ["/path/to/aether/mcp_server.py"],
     "env": {
-      "AETHER_BASE_URL": "http://localhost:8000"
+      "AETHER_BASE_URL": "http://127.0.0.1:8000"
     }
   }
 }
