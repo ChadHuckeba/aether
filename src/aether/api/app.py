@@ -12,13 +12,14 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 # 1. Configuration & Core Modules
-from aether.core.config import SAFE_ROOT, PROJECTS_FILE, REQUIRED_EXTS, get_storage_path
+from aether.core.config import SAFE_ROOT, PROJECTS_FILE, REQUIRED_EXTS, get_storage_path, QUOTA_FILE
 from aether.core.projects import load_projects, save_projects, get_project_list
 from aether.core.stats import get_index_metrics
 from aether.core.engine import get_index, run_ingestion
 from aether.core.watcher import setup_watcher
 from aether.core.explorer import browse_directory
 from aether.ui.templates import get_dashboard_html, get_manage_html
+import json
 
 # --- Global State ---
 logger = logging.getLogger("aether.api")
@@ -29,7 +30,9 @@ sync_status = {
     "last_sync": "Never",
     "auto_sync": False,
     "pending_changes": False,
-    "last_ingested": None
+    "last_ingested": None,
+    "embed_calls_today": None,
+    "embed_limit": None
 }
 _cached_index = None
 _stats_cache = {}
@@ -45,6 +48,36 @@ def mark_pending_changes():
     global sync_status
     sync_status["pending_changes"] = True
     logger.info(f"Pending changes flagged by watcher callback for project: {active_project}")
+
+def _load_quota() -> dict:
+    from datetime import datetime
+    today_str = datetime.utcnow().date().isoformat()
+    
+    if not os.path.exists(QUOTA_FILE):
+        default_quota = {"date": today_str, "embed_calls": 0, "embed_limit": 900}
+        _save_quota(default_quota)
+        return default_quota
+        
+    try:
+        with open(QUOTA_FILE, "r") as f:
+            quota = json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading quota file: {e}")
+        quota = {"date": today_str, "embed_calls": 0, "embed_limit": 900}
+        
+    if quota.get("date") != today_str:
+        quota["date"] = today_str
+        quota["embed_calls"] = 0
+        _save_quota(quota)
+        
+    return quota
+
+def _save_quota(quota: dict):
+    try:
+        with open(QUOTA_FILE, "w") as f:
+            json.dump(quota, f, indent=4)
+    except Exception as e:
+        logger.error(f"Error saving quota file: {e}")
 
 # --- Lifespan Management ---
 
@@ -85,6 +118,11 @@ async def lifespan(app: FastAPI):
     if isinstance(active_entry, dict):
         sync_status["last_ingested"] = active_entry.get("last_ingested")
     
+    # Load daily embedding quota
+    quota = _load_quota()
+    sync_status["embed_calls_today"] = quota.get("embed_calls")
+    sync_status["embed_limit"] = quota.get("embed_limit")
+    
     restart_watcher()
     yield
     if observer:
@@ -100,6 +138,15 @@ async def run_ingestion_task():
     if sync_status["status"] == "syncing":
         return
         
+    quota = _load_quota()
+    sync_status["embed_calls_today"] = quota.get("embed_calls")
+    sync_status["embed_limit"] = quota.get("embed_limit")
+    
+    if quota.get("embed_calls", 0) >= quota.get("embed_limit", 900):
+        sync_status["status"] = "quota_exceeded"
+        logger.warning(f"Ingestion aborted: daily embed quota exceeded. Used: {quota.get('embed_calls')}, Limit: {quota.get('embed_limit')}")
+        return
+
     sync_status["status"] = "syncing"
     try:
         path = get_project_path(active_project)
@@ -129,6 +176,12 @@ async def run_ingestion_task():
                 PROJECTS[active_project] = {"path": entry, "last_ingested": utc_ts}
             save_projects(PROJECTS)
             
+        # Update daily embedding quota
+        embed_calls_used = result.get("embed_calls_used", 0)
+        quota["embed_calls"] = quota.get("embed_calls", 0) + embed_calls_used
+        _save_quota(quota)
+        sync_status["embed_calls_today"] = quota.get("embed_calls")
+        
     except Exception as e:
         logger.error(f"Ingestion error: {e}")
         sync_status["status"] = f"error: {str(e)}"
@@ -177,6 +230,11 @@ async def switch_project(request: SwitchRequest):
     else:
         sync_status["last_ingested"] = None
     sync_status["pending_changes"] = False
+    
+    # Refresh daily embedding quota state on project switch
+    quota = _load_quota()
+    sync_status["embed_calls_today"] = quota.get("embed_calls")
+    sync_status["embed_limit"] = quota.get("embed_limit")
     
     restart_watcher()
     return {"active": active_project}

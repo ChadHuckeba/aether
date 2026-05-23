@@ -23,7 +23,7 @@ async def get_index(active_project: str) -> Any:
     # Load in a thread to keep async loops clear
     return await asyncio.to_thread(_load)
 
-async def run_ingestion(active_project: str, project_path: str, exclude_dirs: list = None) -> Dict[str, str]:
+async def run_ingestion(active_project: str, project_path: str, exclude_dirs: list = None) -> Dict[str, Any]:
     """Orchestrates the ingestion process for a specific project."""
     if not os.path.exists(project_path):
         raise FileNotFoundError(f"Project source path not found: {project_path}")
@@ -31,11 +31,12 @@ async def run_ingestion(active_project: str, project_path: str, exclude_dirs: li
     storage_dir = str(get_storage_path(active_project))
     
     # Run in a thread for CPU-intensive embedding
-    await asyncio.to_thread(sync_local_dir_custom, project_path, storage_dir, exclude_dirs)
+    batch_count = await asyncio.to_thread(sync_local_dir_custom, project_path, storage_dir, exclude_dirs)
     
     return {
         "last_sync": datetime.utcnow().isoformat() + "Z",
-        "status": "idle"
+        "status": "idle",
+        "embed_calls_used": batch_count
     }
 
 def query_aether(prompt: str, project_name: str = None):
