@@ -7,7 +7,11 @@ ACTION=${1:-start}
 PORT=8000
 
 get_aether_pid() {
-    pgrep -f "python server.py" | head -n 1
+    ps -eo pid,state,command | grep "python server.py" | grep -v "defunct" | grep -v "grep" | awk '{print $1}' | head -n 1
+}
+
+get_any_aether_pid() {
+    ps -eo pid,command | grep "python server.py" | grep -v "grep" | awk '{print $1}' | head -n 1
 }
 
 case $ACTION in
@@ -29,10 +33,39 @@ case $ACTION in
         fi
         ;;
     stop)
-        PID=$(get_aether_pid)
+        PID=$(get_any_aether_pid)
         if [ -n "$PID" ]; then
-            echo "Stopping Aether process (PID: $PID)..."
-            kill $PID
+            # Find all child processes (multiprocessing workers) of the parent PID
+            CHILDREN=$(pgrep -P $PID)
+            ALL_PIDS="$PID $CHILDREN"
+            echo "Stopping Aether process tree (PIDs: $ALL_PIDS)..."
+            kill $ALL_PIDS 2>/dev/null
+            
+            # Wait up to 5 seconds for graceful shutdown
+            for i in {1..5}; do
+                STILL_ALIVE=""
+                for P in $ALL_PIDS; do
+                    if kill -0 $P 2>/dev/null; then
+                        STILL_ALIVE="$STILL_ALIVE $P"
+                    fi
+                done
+                if [ -z "$STILL_ALIVE" ]; then
+                    break
+                fi
+                sleep 1
+            done
+
+            # Force kill any processes still running
+            STILL_ALIVE=""
+            for P in $ALL_PIDS; do
+                if kill -0 $P 2>/dev/null; then
+                    STILL_ALIVE="$STILL_ALIVE $P"
+                fi
+            done
+            if [ -n "$STILL_ALIVE" ]; then
+                echo "Processes ($STILL_ALIVE) did not exit. Force killing..."
+                kill -9 $STILL_ALIVE 2>/dev/null
+            fi
             echo "Aether session ended."
         else
             echo "Aether is not running."
