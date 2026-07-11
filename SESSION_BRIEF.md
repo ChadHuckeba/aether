@@ -16,7 +16,6 @@ Aether is integrated within the multi-repository SurvivalStack product line. Bel
 | **SurvivalStack** | `vanguard` | `survivalstack/Vanguard` | `ChadHuckeba/SurvivalStack-Vanguard` | Active |
 | **SurvivalStack** | `cairn` | `survivalstack/cairn` | `ChadHuckeba/SurvivalStack-Cairn` | Active |
 | **SurvivalTools** | `aether` | `survivaltools/Aether` | `ChadHuckeba/SurvivalTools-Aether` | Active |
-| **SurvivalTools** | `atomic-crm` | `survivaltools/Atomic-CRM` | `ChadHuckeba/SurvivalTools-Atomic-CRM` | Active |
 | **HoundStack** | `wallboard` | `houndstack/Wallboard` | `ChadHuckeba/HoundStack-Wallboard` | Active |
 
 ---
